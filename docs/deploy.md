@@ -7,6 +7,11 @@
 - **Vercel** — Next.js App Router + API routes
 - **Groq** — `GROQ_API_KEY` server-side only
 
+## Hobby plan limits
+
+- **Memory:** max **2048 MB** per function (`vercel.json` uses 2048 for PDF export, 1024 for others).
+- **Duration:** Hobby functions are often capped at **10s**; `/api/tailor` requests **180s** and may need **Pro** for long LLM runs.
+
 ## Vercel setup (summary)
 
 1. Import Git repo → Framework: **Next.js** → Node **20** (`.nvmrc`).

@@ -114,7 +114,7 @@ npm run pdf:install          # Chromium for Playwright
 | Install command | `npm ci` or `npm install` |
 | Node.js version | **20** (matches `.nvmrc`) |
 
-`vercel.json` configures function memory/timeouts; route files also export `maxDuration` and `runtime = "nodejs"`.
+`vercel.json` configures function memory/timeouts; route files also export `maxDuration` and `runtime = "nodejs"`. **Hobby plan:** max function memory is **2048 MB** (PDF export uses 2048; Pro can raise higher).
 
 ### 4.2 Environment variables
 
