@@ -1,8 +1,8 @@
 # Resume Shapeshifter — Phase-Wise Implementation Plan
 
 This plan operationalizes [`architecture.md`](./architecture.md) into five implementation phases. Each phase has objectives, tasks, deliverables, acceptance criteria, and exit gates before starting the next phase.
- -
-**Stack (fixed for all phases):** Next.js (App Router), React, TypeScript, Tailwind CSS, Shadcn UI, Zod, OpenAI (or equivalent structured-output LLM).
+
+**Stack (fixed for all phases):** Next.js (App Router), React, TypeScript, Tailwind CSS, Shadcn UI, Zod, **Groq** (via OpenAI-compatible API and the `openai` npm client).
 
 **Guiding principle:** Ship a working vertical slice early, then replace mocks with real services without rewriting the UI contract.
 
@@ -45,8 +45,8 @@ Complete once before Phase 1. Not counted as a product phase but required for al
 | # | Task | Owner layer |
 |---|------|-------------|
 | 0.1 | `npx create-next-app@latest` with TypeScript, Tailwind, App Router, `src/` or flat `app/` per preference | Tooling |
-| 0.2 | Install: `zod`, `@tanstack/react-query`, `openai`, `uuid`, Shadcn UI (`npx shadcn@latest init`) | Tooling |
-| 0.3 | Add `.env.example` with `OPENAI_API_KEY`, `LLM_MODEL`, `MAX_UPLOAD_MB` | Config |
+| 0.2 | Install: `zod`, `@tanstack/react-query`, `openai` (Groq-compatible client), `uuid`, Shadcn UI (`npx shadcn@latest init`) | Tooling |
+| 0.3 | Add `.env.example` with `GROQ_API_KEY`, `GROQ_BASE_URL`, `LLM_MODEL`, `MAX_UPLOAD_MB` | Config |
 | 0.4 | Create folder skeleton per architecture §15 (`app/`, `components/`, `lib/`, `services/`, `prompts/`, `tests/fixtures/`) | Repo |
 | 0.5 | Define all Zod schemas in `lib/schemas.ts` (`ResumeProfile`, `JobDescriptionProfile`, `MatchScore`, `TailoredResume`, `GapAnalysis`, `TailoringRun`) | Domain |
 | 0.6 | Add `tests/schemas.test.ts` — valid/invalid fixture parsing | Tests |
@@ -139,27 +139,30 @@ Return static JSON from fixtures so Phase 2 only swaps implementation:
 
 ---
 
-## Phase 2 — LLM Integration
+## Phase 2 — LLM Integration (Groq)
 
-**Architecture focus:** Prompt modules, Zod validation, real services, orchestrator, API routes. Paste text only; file upload deferred to Phase 5.
+**Architecture focus:** Groq-backed prompt modules, Zod validation, real services, orchestrator, API routes. Paste text only; file upload deferred to Phase 5.
 
 **Duration (estimate):** 5–7 days
 
+**Prerequisites:** Groq API key from [console.groq.com](https://console.groq.com); set `GROQ_API_KEY` in `.env`.
+
 ### Objectives
 
-1. Replace mocks with real LLM-backed parse, score, gap, and tailor.
+1. Replace mocks with real Groq-backed parse, score, gap, and tailor.
 2. Implement orchestrator workflow: parse → score → gap → tailor → re-score.
 3. Enforce structured JSON + single retry on validation failure.
 
 ### Tasks
 
-#### 2.1 LLM infrastructure
+#### 2.1 LLM infrastructure (Groq)
 
 | # | Task | File(s) |
 |---|------|---------|
-| 2.1.1 | `lib/llm/client.ts` — OpenAI client, model from env | `lib/llm/client.ts` |
-| 2.1.2 | `lib/llm/run-prompt.ts` — call + JSON extract + Zod parse + one retry with errors | `lib/llm/run-prompt.ts` |
+| 2.1.1 | `lib/llm/client.ts` — `OpenAI` client with `baseURL: https://api.groq.com/openai/v1`, `GROQ_API_KEY`, `LLM_MODEL` (default `llama-3.3-70b-versatile`) | `lib/llm/client.ts` |
+| 2.1.2 | `lib/llm/run-prompt.ts` — chat completion + `response_format: json_object` when supported + fence strip + Zod parse + one retry | `lib/llm/run-prompt.ts` |
 | 2.1.3 | Shared system preamble: truthfulness rules (architecture §6) | `prompts/system.ts` |
+| 2.1.4 | Map Groq errors: `401` → `LLM_AUTH_FAILED`, `429` → backoff + `LLM_RATE_LIMIT`, timeout → `LLM_TIMEOUT` | `lib/llm/run-prompt.ts` |
 
 #### 2.2 Prompts (one file per task)
 
@@ -227,7 +230,7 @@ Return static JSON from fixtures so Phase 2 only swaps implementation:
 - [ ] Tailored match score ≥ original score for demo fixture (not guaranteed for all inputs, but demo path should improve)
 - [ ] Invalid LLM JSON triggers one retry; second failure returns clear error to UI
 - [ ] `GET /api/runs/:id` returns full `TailoringRun`
-- [ ] No LLM API keys exposed to client
+- [ ] No Groq API keys exposed to client
 
 ### Exit gate → Phase 3
 
@@ -521,8 +524,9 @@ Phases 4–5 can run in parallel: guardrails on API while UI polish proceeds.
 | Phase | Top risk | Mitigation |
 |-------|----------|------------|
 | 1 | UI rework when real data arrives | Use production `TailoringRun` shape in mocks |
-| 2 | LLM cost/latency | Batch bullets; gpt-4o-mini; cache JD per run |
-| 2 | JSON failures | Zod retry; lower temperature |
+| 2 | LLM cost/latency | Batch bullets; `llama-3.1-8b-instant` for dev, `llama-3.3-70b-versatile` for demo; cache JD per run |
+| 2 | JSON failures | Zod retry; `json_object` response format; lower temperature |
+| 2 | Groq RPM/TPM limits | Batch bullet rewrites; exponential backoff on 429; show retry in UI |
 | 3 | Serverless PDF | Playwright on Node runtime or local export fallback |
 | 4 | False positives in guardrails | Warn-first; tune heuristics with fixtures |
 | 5 | Bad PDF parse | Warnings + paste fallback |
@@ -534,7 +538,7 @@ Phases 4–5 can run in parallel: guardrails on API while UI polish proceeds.
 | Milestone | After phase | Demo |
 |-----------|-------------|------|
 | **M1 — UI proof** | Phase 1 | Walk through mock analyze + review |
-| **M2 — Intelligence** | Phase 2 | Live tailor against real job posting |
+| **M2 — Intelligence** | Phase 2 | Live tailor against real job posting (Groq) |
 | **M3 — Artifact** | Phase 3 | Show comparison PDF |
 | **M4 — Trust** | Phase 4 | Show risk flag on overstated bullet |
 | **M5 — Portfolio** | Phase 5 | End-to-end recorded demo |
@@ -575,8 +579,9 @@ Use this as a progress tracker across phases:
 
 ## References
 
-- [architecture.md](./architecture.md) — system design, APIs, domain model
+- [architecture.md](./architecture.md) — system design, APIs, domain model (see **§6.1 Groq integration**)
 - [problemStatement.md](./problemStatement.md) — product requirements and acceptance criteria
+- [Groq OpenAI-compatible API](https://console.groq.com/docs/openai) — client setup and models
 
 ---
 

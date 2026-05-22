@@ -1,0 +1,28 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "framework": "nextjs",
+  "installCommand": "npm ci",
+  "buildCommand": "npm run build",
+  "functions": {
+    "app/api/tailor/route.ts": {
+      "maxDuration": 180,
+      "memory": 1024
+    },
+    "app/api/analyze/route.ts": {
+      "maxDuration": 120,
+      "memory": 1024
+    },
+    "app/api/export/pdf/route.ts": {
+      "maxDuration": 120,
+      "memory": 3008
+    },
+    "app/api/parse/resume/route.ts": {
+      "maxDuration": 60,
+      "memory": 1024
+    },
+    "app/api/parse/jd/route.ts": {
+      "maxDuration": 60,
+      "memory": 1024
+    }
+  }
+}

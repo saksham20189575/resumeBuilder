@@ -53,7 +53,7 @@ C4Context
 
     System(shapeshifter, "Resume Shapeshifter", "Parses, scores, tailors, gaps, exports PDF")
 
-    System_Ext(llm, "LLM Provider", "OpenAI or structured-output-capable model")
+    System_Ext(llm, "Groq", "OpenAI-compatible LLM API (Llama, Mixtral, etc.)")
     System_Ext(storage, "Storage", "Session / SQLite / Supabase (optional)")
 
     Rel(user, shapeshifter, "Uses")
@@ -64,7 +64,7 @@ C4Context
 
 **Primary actors:** Job seekers (and optionally career coaches) who need a truthful, JD-aligned resume rewrite with before/after scoring and a downloadable comparison PDF.
 
-**External dependencies:** LLM API for extraction, scoring, rewriting, and gap analysis; optional object/file storage for uploads; PDF rendering (browser or headless).
+**External dependencies:** [Groq](https://console.groq.com) LLM API (OpenAI-compatible) for extraction, scoring, rewriting, and gap analysis; optional object/file storage for uploads; PDF rendering (browser or headless).
 
 ---
 
@@ -98,7 +98,7 @@ flowchart TB
     end
 
     subgraph External["External"]
-        LLM[(LLM API)]
+        LLM[(Groq API)]
         DB[(SQLite / Supabase / Session)]
     end
 
@@ -346,7 +346,7 @@ Use **separate prompts** per task (stored under `/prompts/`), each requesting **
 ```mermaid
 sequenceDiagram
     participant API as Orchestrator
-    participant LLM as LLM Provider
+    participant LLM as Groq
 
     API->>LLM: jd-extraction(JD text)
     LLM-->>API: JobDescriptionProfile JSON
@@ -389,10 +389,57 @@ sequenceDiagram
 
 ### Reliability patterns
 
-- **JSON mode / response_format** where supported.
+- **JSON mode / `response_format`** — Use `json_object` on Groq models that support it (e.g. `llama-3.3-70b-versatile`); otherwise strict “JSON only” instructions plus fence-stripping in `run-prompt.ts`.
 - **Zod validation** on every response; on failure: single structured retry with validation errors.
 - **Temperature** — Lower (0–0.3) for parsing/scoring; moderate for rewriting if creativity needed.
 - **Token budgeting** — Truncate JD to requirements sections; send only relevant experience blocks per rewrite batch.
+- **Rate limits** — Groq enforces requests-per-minute and tokens-per-minute per model; batch bullet rewrites and cache JD extraction per `runId` to stay within free-tier quotas.
+
+### 6.1 Groq integration
+
+**Groq** is the default LLM provider. It exposes an [OpenAI-compatible HTTP API](https://console.groq.com/docs/openai), so the app uses the official `openai` npm package pointed at Groq’s base URL—no separate Groq SDK required.
+
+#### Client setup (`lib/llm/client.ts`)
+
+```typescript
+import OpenAI from "openai";
+
+export function createLlmClient() {
+  const apiKey = process.env.GROQ_API_KEY;
+  if (!apiKey) throw new Error("GROQ_API_KEY is not set");
+
+  return new OpenAI({
+    apiKey,
+    baseURL: process.env.GROQ_BASE_URL ?? "https://api.groq.com/openai/v1",
+  });
+}
+
+export function getLlmModel() {
+  return process.env.LLM_MODEL ?? "llama-3.3-70b-versatile";
+}
+```
+
+- **Server-only:** `GROQ_API_KEY` must never be exposed to the browser.
+- **Swap-friendly:** The same `run-prompt.ts` abstraction works if you later change `baseURL` (e.g. to OpenAI); only env and client factory change.
+
+#### Recommended models (MVP)
+
+| Task | Suggested model | Notes |
+|------|-----------------|-------|
+| JD extraction, resume cleanup, scoring, gaps | `llama-3.3-70b-versatile` | Strong reasoning; supports `response_format: { type: "json_object" }` |
+| Bullet rewriting (batched) | `llama-3.3-70b-versatile` or `llama-3.1-8b-instant` | Use 70B for quality; 8B instant for faster/cheaper iteration |
+| High-volume dev/testing | `llama-3.1-8b-instant` | Lower latency; verify JSON reliability with Zod + retry |
+
+Set the active model via `LLM_MODEL` in `.env`. Confirm current model IDs in the [Groq model list](https://console.groq.com/docs/models).
+
+#### Groq-specific considerations
+
+| Topic | Guidance |
+|-------|----------|
+| **Structured output** | Prefer `response_format: { type: "json_object" }` when the model supports it; always validate with Zod. |
+| **Context window** | Respect per-model context limits; truncate long JDs and send experience in batches for tailor. |
+| **Errors** | Map Groq `429` → retry with backoff; `401` → `LLM_AUTH_FAILED`; timeouts → `LLM_TIMEOUT` (see edge cases). |
+| **Logging** | Log `runId`, stage, model id, duration, and token usage—never log resume/JD body or API keys. |
 
 ---
 
@@ -591,7 +638,7 @@ Uploaded PDFs/DOCX: store temporarily on disk or S3-compatible bucket; delete af
 
 ### 12.3 Security
 
-- API keys only on server (`OPENAI_API_KEY` in env).
+- API keys only on server (`GROQ_API_KEY` in env).
 - File upload size limits, MIME validation, virus scan (future).
 - Rate limiting on `/api/tailor` and `/api/export/pdf`.
 - CSP on frontend; sanitize any user-rendered HTML in previews.
@@ -599,8 +646,9 @@ Uploaded PDFs/DOCX: store temporarily on disk or S3-compatible bucket; delete af
 ### 12.4 Configuration
 
 ```env
-OPENAI_API_KEY=
-LLM_MODEL=gpt-4o-mini
+GROQ_API_KEY=
+GROQ_BASE_URL=https://api.groq.com/openai/v1
+LLM_MODEL=llama-3.3-70b-versatile
 MAX_UPLOAD_MB=5
 PDF_RENDERER=playwright
 DATABASE_URL=          # optional
@@ -622,7 +670,7 @@ flowchart TB
     end
 
     USER[User Browser] --> WEB
-    WEB --> LLM[LLM API]
+    WEB --> LLM[Groq API]
     WEB --> PY
     WEB --> DB
     WEB --> PDF[Headless Chromium for PDF]
@@ -640,7 +688,7 @@ Aligned with `problemStatement.md` §15:
 | Phase | Deliverable | Architecture focus |
 |-------|-------------|-------------------|
 | **1 — Static prototype** | Paste-only UI, mocked JSON, in-browser side-by-side | Component tree, types, mock orchestrator |
-| **2 — LLM integration** | Real parsers, scoring, rewrite, gaps | Prompt modules, Zod validation, API routes |
+| **2 — LLM integration** | Real parsers, scoring, rewrite, gaps via Groq | Prompt modules, Zod validation, API routes |
 | **3 — PDF export** | Tailored + comparison PDFs | HTML templates, export route |
 | **4 — Guardrails** | Risk flags, claim detection, confirmation | Guardrail checker service |
 | **5 — Polish** | Samples, loading, errors, downloads | UX hardening, observability |
@@ -714,7 +762,8 @@ resume-shapeshifter/
 | Scores feel falsely precise | User over-relies on number | Sub-scores + explanation; show confidence bands in UI |
 | Multi-column resumes | Garbled text | MVP disclaimer; text paste fallback |
 | Serverless PDF limits | Export fails | Dedicated PDF worker or external service |
-| Cost / latency | Poor UX | Batch bullets; cache JD extraction per run |
+| Cost / latency | Poor UX | Batch bullets; cache JD per run; use `llama-3.1-8b-instant` for dev |
+| Groq rate limits (RPM/TPM) | Analyze/tailor fails mid-run | Batch requests; exponential backoff on 429; surface clear UI retry |
 
 ---
 
