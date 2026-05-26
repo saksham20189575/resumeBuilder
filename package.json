@@ -12,7 +12,7 @@
     "pdf:install": "playwright install chromium"
   },
   "engines": {
-    "node": ">=20.9.0"
+    "node": "20.x"
   },
   "dependencies": {
     "@base-ui/react": "^1.4.1",
@@ -48,8 +48,5 @@
     "tailwindcss": "^4",
     "typescript": "^5",
     "vitest": "^3.2.4"
-  },
-  "optionalDependencies": {
-    "@tailwindcss/oxide-darwin-arm64": "^4.3.0"
   }
 }
