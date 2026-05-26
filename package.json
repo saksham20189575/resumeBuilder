@@ -44,9 +44,11 @@
     "@vitejs/plugin-react": "^4.7.0",
     "eslint": "^9",
     "eslint-config-next": "^15.5.18",
-    "playwright": "^1.60.0",
     "tailwindcss": "^4",
     "typescript": "^5",
     "vitest": "^3.2.4"
+  },
+  "optionalDependencies": {
+    "playwright": "^1.60.0"
   }
 }
