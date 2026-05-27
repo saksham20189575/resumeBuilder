@@ -6,7 +6,7 @@
       "PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD": "1"
     }
   },
-  "installCommand": "npm ci --ignore-scripts || npm install --ignore-scripts",
+  "installCommand": "npm ci --registry=https://registry.npmjs.org/ --ignore-scripts || npm install --registry=https://registry.npmjs.org/ --ignore-scripts",
   "buildCommand": "npm run build",
   "functions": {
     "app/api/tailor/route.ts": {
